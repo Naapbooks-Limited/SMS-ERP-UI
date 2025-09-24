@@ -46,6 +46,18 @@ const Product = () => {
     const data = user ? JSON.parse(user) : null;
     return data ? data?.nopVendorId : null;
   }
+
+  // Token for ShopMyStation APIs (uses 'Token' header with nopToken)
+  const getNopToken = () => {
+    try {
+      const raw = sessionStorage.getItem('nopToken') || null;
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return typeof parsed === 'string' && parsed.length > 0 ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
   
   const { theme } = useTheme();
   const [data, setData] = useState([]);
@@ -243,20 +255,76 @@ const handleExport = async () => {
     }
   };
 
-  // Download sample file
-  const handleDownloadSample = async () => {
-    try {
-      const link = document.createElement('a');
-      link.href = sampleFileUrl;
-      link.download = 'product_import_sample.xlsx';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (error) {
-      console.error("Sample download failed:", error);
-      alert("Failed to download sample file");
+ // Download sample file from GlobalPropperties base via POST, attaching 'Token' header (nopToken)
+ const handleDownloadSample = async () => {
+  try {
+    const token = getNopToken();
+    if (!token) {
+      alert("You're not authenticated. Please login again.");
+      return;
     }
-  };
+
+    const downloadUrl = `${GlobalPropperties.ezeo_shopmystation}admin-api/Product/export-excel-all`;
+
+    // Reuse same export params as the Export action
+    const exportParams = {
+      searchProductName: "",
+      searchCategoryId: 0,
+      searchIncludeSubCategories: false,
+      searchManufacturerId: 0,
+      searchStoreId: 0,
+      searchVendorId: userData?.nopVendorId,
+      searchWarehouseId: 0,
+      searchProductTypeId: 0,
+      searchPublishedId: 0,
+      goDirectlyToSku: "",
+      isLoggedInAsVendor: false,
+      allowVendorsToImportProducts: false,
+      licenseCheckModel: {},
+      hideStoresList: false,
+      availableCategories: [],
+      availableManufacturers: [],
+      availableStores: [],
+      availableWarehouses: [],
+      availableVendors: [],
+      availableProductTypes: [],
+      availablePublishedOptions: []
+    };
+
+    const response = await axios({
+      url: downloadUrl,
+      method: 'POST',
+      data: exportParams,
+      responseType: 'blob',
+      headers: {
+        Token: token,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = 'product_import_sample.xlsx';
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename=\"?(.+)\"?/i);
+      if (match && match[1]) {
+        filename = match[1];
+      }
+    }
+
+    const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (error) {
+    console.error("Sample download failed:", error);
+    alert("Failed to download sample file");
+  }
+};
+
 
   const handleImportSuccess = (data) => {
     console.log('Import successful:', data);
