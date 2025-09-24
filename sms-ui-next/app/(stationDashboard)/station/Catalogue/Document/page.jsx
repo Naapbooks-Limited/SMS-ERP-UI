@@ -1,0 +1,413 @@
+"use client";
+import React, { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  DownloadIcon,
+  Eye,
+  FilePenLine,
+  Plus,
+  SearchIcon,
+  Trash,
+} from "lucide-react";
+import GlobalPropperties from "@/utilities/GlobalPropperties";
+import Pagination from "@/components/pagination/Pagination";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import CallFor from "@/utilities/CallFor";
+import { saveAs } from "file-saver";
+import DeleteDialog from "@/components/DeleteDialog";
+import axios from "axios";
+import {
+  Tooltip,
+  TooltipArrow,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+const Document = () => {
+  const router = useRouter();
+  const [data, setData] = useState([]);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const itemsPerPage = 10;
+  const [tempSearchFields, setTempSearchFields] = useState({
+    Name: "",
+    // UploadedBy: "",
+    DocumentType: "",
+  });
+  const [searchParams, setSearchParams] = useState({
+    entityid: null,
+    entitytypeid: 91,
+    docname: null,
+    doctypeid: null,
+    fromdate: "0001-01-01T00:00:00",
+    todate: "0001-01-01T00:00:00"
+  });
+  const [sortConfig, setSortConfig] = useState({ key: "", direction: "asc" });
+  const [documentTypes, setDocumentTypes] = useState([]);
+
+  const userData = JSON.parse(sessionStorage.getItem("userData") || "{}");
+  const uoid = userData.orgid;
+
+  useEffect(() => {
+    fetchDropdownData();
+    fetchData(currentPage);
+  }, [currentPage, searchParams]);
+
+  const fetchDropdownData = async () => {
+    try {
+      const response = await CallFor("v2/document/GetAllDocuments", "get", null, "Auth");
+
+      setDocumentTypes(response.data.mastervalues.doctypeid.mastervalues);
+    } catch (error) {
+      console.error("Error fetching dropdown data", error);
+    }
+  };
+
+  const fetchData = async (page) => {
+    setLoading(true);
+    try {
+      const response = await CallFor(
+        "v2/document/GetAllDocuments",
+        "POST",
+        {
+          ...searchParams,
+          paginationFilter: {
+            pageNumber: page,
+            pageSize: itemsPerPage
+          }
+        },
+        "Auth"
+      );
+      if (response.data.data)
+      {
+        setData(response.data.data.data || []);
+        setTotalPages(Math.ceil(response.data.data.totalCount / itemsPerPage));
+      }
+      else
+      {
+        setData([])
+        setTotalPages("");
+      }
+    
+      setLoading(false);
+      
+     
+    } catch (error) {
+      setError(error.message);
+      setLoading(false);
+    }
+  };
+
+  const handlePageChange = (pageNumber) => {
+    setCurrentPage(pageNumber);
+  };
+
+  const handleSearch = () => {
+    setSearchParams({
+      ...searchParams,
+      docname: tempSearchFields.Name,
+      doctypeid: parseInt(tempSearchFields.DocumentType),
+    });
+    setCurrentPage(1); // Reset to first page on search
+  };
+
+  const handleInputChange = (field, value) => {
+    setTempSearchFields({ ...tempSearchFields, [field]: value });
+  };
+
+  const handleSort = (columnName) => {
+    let direction = "asc";
+    if (sortConfig.key === columnName && sortConfig.direction === "asc") {
+      direction = "desc";
+    }
+    setSortConfig({ key: columnName, direction });
+  };
+  
+
+  const sortedData = [...data].sort((a, b) => {
+    if (a[sortConfig.key] < b[sortConfig.key]) {
+      return sortConfig.direction === "asc" ? -1 : 1;
+    }
+    if (a[sortConfig.key] > b[sortConfig.key]) {
+      return sortConfig.direction === "asc" ? 1 : -1;
+    }
+    return 0;
+  });
+
+  const downloadDocument = async (docurl, filename, format) => {
+    try {
+      const response = await axios.get(
+        GlobalPropperties.viewdocument + `${docurl}`,
+        {
+          responseType: "blob",
+        }
+      );
+
+      let contentType = response.headers["content-type"];
+      if (!contentType && format === "xlsx") {
+        contentType =
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      }
+
+      const blob = new Blob([response.data], { type: contentType });
+
+      saveAs(blob, filename);
+    } catch (error) {
+      console.error("Error downloading the document", error);
+    }
+  };
+
+  const handleDeleteUser = async (userId) => {
+    setSelectedUserId(userId);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleCloseDeleteDialog = () => {
+    setIsDeleteDialogOpen(false);
+  };
+
+  return (
+    <div className="container mx-auto">
+      <div className="flex">
+        <SearchIcon className="text-gray-500" size={19} />
+        <h1 className="text-[20px] font-semibold mb-4 pl-2">Search</h1>
+      </div>
+      <div className="mb-4 grid grid-cols-1 lg:grid-cols-2 gap-x-10">
+        {Object.keys(tempSearchFields).map((field) => (
+          <div key={field} className="flex items-center mb-2">
+            <label className="w-1/4 font-medium mr-2">{field}</label>
+            {field === "DocumentType" ? (
+              <select
+                className="border border-gray-300 px-4 py-2 rounded w-3/4"
+                onChange={(e) => handleInputChange(field, e.target.value)}
+              >
+                <option value="">Select Document Type</option>
+                {documentTypes.map((type) => (
+                  <option key={type.mvid} value={type.mvid}>
+                    {type.mastervalue1}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                className="border border-gray-300 px-4 py-2 rounded w-3/4"
+                onChange={(e) => handleInputChange(field, e.target.value)}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-center lg:mb-1 mb-3 items-center">
+        <Button
+          color="warning"
+          className="shadow-md w-28"
+          onClick={handleSearch}
+        >
+          <SearchIcon size={20} className="pr-1" />
+          Search
+        </Button>
+      </div>
+
+      <div className="flex justify-between items-center mb-4">
+        <div className="text-2xl text-orange-400">Catalog Document List</div>
+        <Button
+          color="warning"
+          className="shadow-md"
+          onClick={() => router.push("/station/Catalogue/Document/adddocument")}
+        >
+          <Plus size={20} className="pr-1" />
+          Add
+        </Button>
+      </div>
+
+      <table className="min-w-full text-left">
+  <thead>
+    <tr>
+
+    <th
+              className="px-4 py-2 cursor-pointer"
+              // onClick={() => handleSort("docid")}
+            >
+              Sr No.{" "}
+              {/* {sortConfig.key === "docid"
+                ? sortConfig.direction === "asc"
+                  ? "▲"
+                  : "▼"
+                : ""} */}
+            </th>
+
+      <th
+        className="px-4 py-2 cursor-pointer"
+        onClick={() => handleSort("name")}
+      >
+        Name{" "}
+        {sortConfig.key === "name"
+          ? sortConfig.direction === "asc"
+            ? "▲"
+            : "▼"
+          : ""}
+      </th>
+      <th
+        className="px-4 py-2 cursor-pointer"
+        onClick={() => handleSort("entityName")}
+      >
+        Product Name{" "}
+        {sortConfig.key === "entityName"
+          ? sortConfig.direction === "asc"
+            ? "▲"
+            : "▼"
+          : ""}
+      </th>
+      <th
+        className="px-4 py-2 cursor-pointer"
+        onClick={() => handleSort("uploadDate")}
+      >
+        Uploaded Date{" "}
+        {sortConfig.key === "uploadDate"
+          ? sortConfig.direction === "asc"
+            ? "▲"
+            : "▼"
+          : ""}
+      </th>
+      <th
+        className="px-4 py-2 cursor-pointer"
+        onClick={() => handleSort("format")}
+      >
+        Format{" "}
+        {sortConfig.key === "format"
+          ? sortConfig.direction === "asc"
+            ? "▲"
+            : "▼"
+          : ""}
+      </th>
+      <th className="px-4 py-2 cursor-pointer">Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {sortedData.map((item) => (
+      <tr key={item.id}>
+        <td className="px-4 py-2">{item.docId}</td>
+        <td className="px-4 py-2">{item.name}</td>
+        <td className="px-4 py-2">{item.entityName}</td>
+        <td className="px-4 py-2">{item.uploadDate?.split("T")[0]}</td>
+        <td className="px-4 py-2">{item.format}</td>
+        <td className="px-4 py-2">
+        <div className="flex items-center space-x-3">
+                  
+
+                  <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Link
+                      href={`/station/Catalogue/Document/viewdocument/${item.docId}`}
+                    >
+                      <Button className="p-0  bg-transparent hover:bg-transparent text-black dark:text-white">
+                        <Eye size={20}></Eye>
+                      </Button>
+                    </Link>
+                            </TooltipTrigger>
+                            <TooltipContent color="primary">
+                              <p>View</p>
+                              <TooltipArrow className="fill-primary" />
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+
+
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                          <Link
+                    href={`/station/Catalogue/Document/editdocument/${item.docId}`}
+                  >
+                    <button>
+                      <FilePenLine size={18} />
+                    </button>
+                  </Link>
+                            </TooltipTrigger>
+                            <TooltipContent color="primary">
+                              <p>Edit</p>
+                              <TooltipArrow className="fill-primary" />
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+
+
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                           <button
+                    onClick={() => handleDeleteUser(item.docId)}
+                  >
+                    <Trash size={18} />
+                  </button>
+                            </TooltipTrigger>
+                            <TooltipContent color="primary">
+                              <p>Delete</p>
+                              <TooltipArrow className="fill-primary" />
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+
+
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                           
+                  <button
+                    onClick={() =>
+                      downloadDocument(item.docUrl, item.name, item.format)
+                    }
+                  >
+                    <DownloadIcon size={18} />
+                  </button>
+                            </TooltipTrigger>
+                            <TooltipContent color="primary">
+                              <p>Download</p>
+                              <TooltipArrow className="fill-primary" />
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+
+                
+
+                 
+                 
+
+                </div>
+        </td>
+      </tr>
+    ))}
+  </tbody>
+</table>
+
+
+      <DeleteDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={handleCloseDeleteDialog}
+        callfor={CallFor}
+        onDelete={() => {
+          fetchData(currentPage);
+          setIsDeleteDialogOpen(false);
+        }}
+        delUrl={`v2/document/DeleteDocument?id=${selectedUserId}`}
+      />
+
+      <div className="flex justify-end mt-4">
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={handlePageChange}
+        />
+      </div>
+    </div>
+  );
+};
+
+export default Document;
